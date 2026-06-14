@@ -226,12 +226,12 @@ class Game:
         p = self.player.pos if pos is None else pos
         return pygame.Rect(p.x - 12, p.y - 12, 24, 24)
 
-    def entity_blockers(self):
+    def entity_blockers(self, disguise=None):
         blockers = list(self.level.walls)
         for gate in self.level.gates:
             if gate["open"]:
                 continue
-            if self.player.disguise == gate["color"]:
+            if disguise is not None and disguise == gate["color"]:
                 continue
             blockers.append(gate["rect"])
         return blockers
@@ -250,7 +250,7 @@ class Game:
         threshold = 8
         best_gap = threshold + 1
         best_normal = None
-        for wall in self.entity_blockers():
+        for wall in self.entity_blockers(self.player.disguise):
             overlap_y = min(rect.bottom, wall.bottom) - max(rect.top, wall.top)
             if overlap_y > 4:
                 left_gap = abs(rect.left - wall.right)
@@ -301,8 +301,8 @@ class Game:
         angle = math.degrees(math.acos(max(-1, min(1, facing_n.dot(to_target)))))
         return angle <= cone_degrees / 2
 
-    def move_with_collisions(self, mover_rect, delta):
-        blockers = self.entity_blockers()
+    def move_with_collisions(self, mover_rect, delta, disguise=None):
+        blockers = self.entity_blockers(disguise)
         rect = mover_rect.copy()
         rect.x += int(delta.x)
         for b in blockers:
@@ -342,7 +342,7 @@ class Game:
         if move.length_squared() > 0:
             move = move.normalize() * self.player.speed * dt
 
-        new_rect = self.move_with_collisions(self.player_rect(), move)
+        new_rect = self.move_with_collisions(self.player_rect(), move, self.player.disguise)
         self.player.pos.update(new_rect.centerx, new_rect.centery)
 
         wall_normal = self.wall_contact_normal()
@@ -424,6 +424,7 @@ class Game:
                     rect = pygame.Rect(enemy.pos.x - 12, enemy.pos.y - 12, 24, 24)
                     moved = self.move_with_collisions(rect, step)
                     enemy.pos.update(moved.centerx, moved.centery)
+            dist = (self.player.pos - enemy.pos).length()
             if dist < enemy.vision_range * 1.1 and not self.line_blocked(enemy.pos, self.player.pos) and enemy.fire_cd <= 0:
                 shot_dir = (self.player.pos - enemy.pos)
                 if shot_dir.length_squared() > 0:
