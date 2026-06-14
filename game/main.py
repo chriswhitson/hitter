@@ -189,7 +189,6 @@ class Game:
             "shoot": pygame.Rect(WIDTH - 220, HEIGHT - 144, 84, 84),
             "dagger": pygame.Rect(WIDTH - 124, HEIGHT - 204, 72, 72),
             "disguise": pygame.Rect(WIDTH - 116, HEIGHT - 102, 72, 72),
-            "lean": pygame.Rect(WIDTH - 224, HEIGHT - 236, 72, 72),
         }
         return {**left, **right}
 
@@ -346,9 +345,8 @@ class Game:
         new_rect = self.move_with_collisions(self.player_rect(), move)
         self.player.pos.update(new_rect.centerx, new_rect.centery)
 
-        lean_requested = keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT] or "lean" in self.mobile_pressed
         wall_normal = self.wall_contact_normal()
-        if lean_requested and wall_normal is not None:
+        if wall_normal is not None:
             self.player.leaning = True
             self.player.lean_normal = wall_normal
         else:
@@ -612,9 +610,9 @@ class Game:
             txt = self.font.render(line, True, (25, 25, 25))
             self.screen.blit(txt, (24, 20 + i * 24))
 
-        tip = self.font.render("WASD move | SHIFT lean | LMB shoot | RMB throw dagger | C steal colour", True, (40, 40, 40))
+        tip = self.font.render("WASD move | auto-lean near walls | LMB shoot | RMB throw dagger | C steal colour", True, (40, 40, 40))
         self.screen.blit(tip, (24, HEIGHT - 34))
-        touch_tip = self.font.render("Touch: D-pad move | LEAN | SHOOT | DAGGER | COLOR", True, (40, 40, 40))
+        touch_tip = self.font.render("Touch: D-pad move | SHOOT | DAGGER | COLOR", True, (40, 40, 40))
         self.screen.blit(touch_tip, (24, HEIGHT - 58))
 
         for name, rect in self.mobile_controls.items():
@@ -625,7 +623,7 @@ class Game:
             self.screen.blit(overlay, rect.topleft)
             label = {
                 "up": "U", "down": "D", "left": "L", "right": "R",
-                "shoot": "SHOOT", "dagger": "DAG", "disguise": "CLR", "lean": "LEAN",
+                "shoot": "SHOOT", "dagger": "DAG", "disguise": "CLR",
             }[name]
             txt = self.font.render(label, True, (245, 245, 245))
             self.screen.blit(txt, (rect.centerx - txt.get_width() // 2, rect.centery - txt.get_height() // 2))
