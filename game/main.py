@@ -172,6 +172,43 @@ class Game:
         self.alert_timer = 0.0
         self.won = False
         self.lose = False
+        self.mobile_controls = self.build_mobile_controls()
+        self.mobile_pressed = set()
+        self.pointer_controls = {}
+
+    def build_mobile_controls(self):
+        left = {
+            "up": pygame.Rect(86, HEIGHT - 194, 72, 72),
+            "down": pygame.Rect(86, HEIGHT - 94, 72, 72),
+            "left": pygame.Rect(20, HEIGHT - 128, 72, 72),
+            "right": pygame.Rect(152, HEIGHT - 128, 72, 72),
+        }
+        right = {
+            "shoot": pygame.Rect(WIDTH - 220, HEIGHT - 144, 84, 84),
+            "dagger": pygame.Rect(WIDTH - 124, HEIGHT - 204, 72, 72),
+            "disguise": pygame.Rect(WIDTH - 116, HEIGHT - 102, 72, 72),
+        }
+        return {**left, **right}
+
+    def control_at_point(self, pos):
+        for name, rect in self.mobile_controls.items():
+            if rect.collidepoint(pos):
+                return name
+        return None
+
+    def auto_aim_direction(self):
+        best = None
+        best_dist = float("inf")
+        for enemy in self.level.enemies:
+            if not enemy.body_alive:
+                continue
+            dist = (enemy.pos - self.player.pos).length_squared()
+            if dist < best_dist:
+                best_dist = dist
+                best = enemy.pos
+        if best is not None:
+            return best - self.player.pos
+        return pygame.Vector2(0, -1)
 
     def generate_floor_texture(self):
         surface = pygame.Surface((WIDTH, HEIGHT))
@@ -255,6 +292,14 @@ class Game:
             move.x -= 1
         if keys[pygame.K_d] or keys[pygame.K_RIGHT]:
             move.x += 1
+        if "up" in self.mobile_pressed:
+            move.y -= 1
+        if "down" in self.mobile_pressed:
+            move.y += 1
+        if "left" in self.mobile_pressed:
+            move.x -= 1
+        if "right" in self.mobile_pressed:
+            move.x += 1
         if move.length_squared() > 0:
             move = move.normalize() * self.player.speed * dt
 
@@ -284,6 +329,8 @@ class Game:
             self.projectiles.clear()
             self.alert_pos = None
             self.alert_timer = 0
+            self.mobile_pressed.clear()
+            self.pointer_controls.clear()
 
     def spawn_player_shot(self, kind, direction):
         if direction.length_squared() == 0:
@@ -513,6 +560,21 @@ class Game:
 
         tip = self.font.render("WASD move | LMB shoot | RMB throw dagger | C steal colour", True, (40, 40, 40))
         self.screen.blit(tip, (24, HEIGHT - 34))
+        touch_tip = self.font.render("Touch: D-pad move | SHOOT | DAGGER | COLOR", True, (40, 40, 40))
+        self.screen.blit(touch_tip, (24, HEIGHT - 58))
+
+        for name, rect in self.mobile_controls.items():
+            pressed = name in self.mobile_pressed
+            base = (55, 55, 55, 170) if not pressed else (20, 120, 45, 190)
+            overlay = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
+            pygame.draw.ellipse(overlay, base, overlay.get_rect())
+            self.screen.blit(overlay, rect.topleft)
+            label = {
+                "up": "U", "down": "D", "left": "L", "right": "R",
+                "shoot": "SHOOT", "dagger": "DAG", "disguise": "CLR",
+            }[name]
+            txt = self.font.render(label, True, (245, 245, 245))
+            self.screen.blit(txt, (rect.centerx - txt.get_width() // 2, rect.centery - txt.get_height() // 2))
 
         if self.won:
             txt = self.big_font.render("Extraction complete.", True, (0, 0, 0))
@@ -531,16 +593,73 @@ class Game:
                 if event.type == pygame.KEYDOWN and event.key == pygame.K_c:
                     self.pickup_disguise()
                 if event.type == pygame.MOUSEBUTTONDOWN and not self.won and not self.lose:
-                    mouse = pygame.Vector2(pygame.mouse.get_pos())
-                    aim = mouse - self.player.pos
-                    if event.button == 1 and self.player.ammo > 0 and self.player.fire_cd <= 0:
-                        self.spawn_player_shot("bullet", aim)
+                    mouse = pygame.Vector2(event.pos)
+                    control = self.control_at_point(mouse)
+                    if event.button == 1 and control is not None:
+                        self.mobile_pressed.add(control)
+                        self.pointer_controls[("mouse", event.button)] = control
+                        if control == "shoot" and self.player.ammo > 0 and self.player.fire_cd <= 0:
+                            self.spawn_player_shot("bullet", self.auto_aim_direction())
+                            self.player.ammo -= 1
+                            self.player.fire_cd = 0.16
+                        elif control == "dagger" and self.player.daggers > 0 and self.player.throw_cd <= 0:
+                            self.spawn_player_shot("dagger", self.auto_aim_direction())
+                            self.player.daggers -= 1
+                            self.player.throw_cd = 0.4
+                        elif control == "disguise":
+                            self.pickup_disguise()
+                    else:
+                        aim = mouse - self.player.pos
+                        if event.button == 1 and self.player.ammo > 0 and self.player.fire_cd <= 0:
+                            self.spawn_player_shot("bullet", aim)
+                            self.player.ammo -= 1
+                            self.player.fire_cd = 0.16
+                        if event.button == 3 and self.player.daggers > 0 and self.player.throw_cd <= 0:
+                            self.spawn_player_shot("dagger", aim)
+                            self.player.daggers -= 1
+                            self.player.throw_cd = 0.4
+                if event.type == pygame.MOUSEBUTTONUP:
+                    key = ("mouse", event.button)
+                    control = self.pointer_controls.pop(key, None)
+                    if control is not None:
+                        self.mobile_pressed.discard(control)
+                if event.type == pygame.FINGERDOWN and not self.won and not self.lose:
+                    pos = (int(event.x * WIDTH), int(event.y * HEIGHT))
+                    control = self.control_at_point(pos)
+                    if control is not None:
+                        self.mobile_pressed.add(control)
+                        self.pointer_controls[("finger", event.finger_id)] = control
+                        if control == "shoot" and self.player.ammo > 0 and self.player.fire_cd <= 0:
+                            self.spawn_player_shot("bullet", self.auto_aim_direction())
+                            self.player.ammo -= 1
+                            self.player.fire_cd = 0.16
+                        elif control == "dagger" and self.player.daggers > 0 and self.player.throw_cd <= 0:
+                            self.spawn_player_shot("dagger", self.auto_aim_direction())
+                            self.player.daggers -= 1
+                            self.player.throw_cd = 0.4
+                        elif control == "disguise":
+                            self.pickup_disguise()
+                    elif self.player.ammo > 0 and self.player.fire_cd <= 0:
+                        self.spawn_player_shot("bullet", pygame.Vector2(pos) - self.player.pos)
                         self.player.ammo -= 1
                         self.player.fire_cd = 0.16
-                    if event.button == 3 and self.player.daggers > 0 and self.player.throw_cd <= 0:
-                        self.spawn_player_shot("dagger", aim)
-                        self.player.daggers -= 1
-                        self.player.throw_cd = 0.4
+                if event.type in (pygame.FINGERUP, pygame.FINGERMOTION):
+                    key = ("finger", event.finger_id)
+                    current = self.pointer_controls.get(key)
+                    if current is None:
+                        continue
+                    pos = (int(event.x * WIDTH), int(event.y * HEIGHT))
+                    now_control = self.control_at_point(pos)
+                    if event.type == pygame.FINGERUP:
+                        self.mobile_pressed.discard(current)
+                        self.pointer_controls.pop(key, None)
+                    elif now_control != current:
+                        self.mobile_pressed.discard(current)
+                        if now_control is not None:
+                            self.mobile_pressed.add(now_control)
+                            self.pointer_controls[key] = now_control
+                        else:
+                            self.pointer_controls.pop(key, None)
 
             if not self.won and not self.lose:
                 self.player.fire_cd = max(0.0, self.player.fire_cd - dt)
