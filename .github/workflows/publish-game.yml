@@ -38,7 +38,7 @@ jobs:
       - name: Prepare artifact
         run: |
           mkdir -p site
-          cp -r build/web/* site/
+          cp -r game/build/web/* site/
 
       - name: Upload pages artifact
         uses: actions/upload-pages-artifact@v3
