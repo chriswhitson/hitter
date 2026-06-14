@@ -24,8 +24,8 @@ Sneak through black-and-white facilities, steal the objective, and extract. Stay
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-python /home/runner/work/hitter/hitter/chriswhitson/hitter/game/main.py
+python game/main.py
 ```
 
 ## GitHub Pages publish
-A GitHub Actions workflow at `/home/runner/work/hitter/hitter/chriswhitson/hitter/.github/workflows/publish-game.yml` builds the pygame project with `pygbag` and deploys to GitHub Pages on pushes to `main`.
+A GitHub Actions workflow at `.github/workflows/publish-game.yml` builds the pygame project with `pygbag` and deploys to GitHub Pages on pushes to `main`.
