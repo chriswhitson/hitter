@@ -78,6 +78,8 @@ class Player:
         self.daggers = 7
         self.fire_cd = 0
         self.throw_cd = 0
+        self.leaning = False
+        self.lean_normal = pygame.Vector2(0, 0)
 
 
 class Level:
@@ -187,6 +189,7 @@ class Game:
             "shoot": pygame.Rect(WIDTH - 220, HEIGHT - 144, 84, 84),
             "dagger": pygame.Rect(WIDTH - 124, HEIGHT - 204, 72, 72),
             "disguise": pygame.Rect(WIDTH - 116, HEIGHT - 102, 72, 72),
+            "lean": pygame.Rect(WIDTH - 224, HEIGHT - 236, 72, 72),
         }
         return {**left, **right}
 
@@ -242,6 +245,43 @@ class Game:
 
     def in_shadow(self, point):
         return any(s.collidepoint(point.x, point.y) for s in self.level.shadows)
+
+    def wall_contact_normal(self):
+        rect = self.player_rect()
+        threshold = 8
+        best_gap = threshold + 1
+        best_normal = None
+        for wall in self.entity_blockers():
+            overlap_y = min(rect.bottom, wall.bottom) - max(rect.top, wall.top)
+            if overlap_y > 4:
+                left_gap = abs(rect.left - wall.right)
+                if left_gap <= threshold and left_gap < best_gap:
+                    best_gap = left_gap
+                    best_normal = pygame.Vector2(1, 0)
+                right_gap = abs(rect.right - wall.left)
+                if right_gap <= threshold and right_gap < best_gap:
+                    best_gap = right_gap
+                    best_normal = pygame.Vector2(-1, 0)
+
+            overlap_x = min(rect.right, wall.right) - max(rect.left, wall.left)
+            if overlap_x > 4:
+                top_gap = abs(rect.top - wall.bottom)
+                if top_gap <= threshold and top_gap < best_gap:
+                    best_gap = top_gap
+                    best_normal = pygame.Vector2(0, 1)
+                bottom_gap = abs(rect.bottom - wall.top)
+                if bottom_gap <= threshold and bottom_gap < best_gap:
+                    best_gap = bottom_gap
+                    best_normal = pygame.Vector2(0, -1)
+        return best_normal
+
+    def player_visibility_multiplier(self):
+        visibility = 1.0
+        if self.in_shadow(self.player.pos):
+            visibility *= 0.55
+        if self.player.leaning:
+            visibility *= 0.45
+        return visibility
 
     def set_alert(self, pos):
         self.alert_pos = pygame.Vector2(pos)
@@ -306,6 +346,15 @@ class Game:
         new_rect = self.move_with_collisions(self.player_rect(), move)
         self.player.pos.update(new_rect.centerx, new_rect.centery)
 
+        lean_requested = keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT] or "lean" in self.mobile_pressed
+        wall_normal = self.wall_contact_normal()
+        if lean_requested and wall_normal is not None:
+            self.player.leaning = True
+            self.player.lean_normal = wall_normal
+        else:
+            self.player.leaning = False
+            self.player.lean_normal = pygame.Vector2(0, 0)
+
         for key in self.level.keys:
             if not key["taken"] and key["rect"].colliderect(self.player_rect()):
                 key["taken"] = True
@@ -345,9 +394,7 @@ class Game:
 
         enemy.fire_cd = max(0.0, enemy.fire_cd - dt)
 
-        player_detect_range = enemy.vision_range
-        if self.in_shadow(self.player.pos):
-            player_detect_range *= 0.55
+        player_detect_range = enemy.vision_range * self.player_visibility_multiplier()
         if self.player.disguise == enemy.color_name:
             player_detect_range *= 0.2
 
@@ -417,11 +464,10 @@ class Game:
             if not cam.active:
                 continue
             to_player = self.player.pos - cam.pos
-            if to_player.length() > cam.view_range:
+            if to_player.length() > cam.view_range * self.player_visibility_multiplier():
                 continue
             if self.angle_in_cone(cam.pos, cam.facing, self.player.pos, cam.cone) and not self.line_blocked(cam.pos, self.player.pos):
-                if not self.in_shadow(self.player.pos):
-                    self.set_alert(self.player.pos)
+                self.set_alert(self.player.pos)
 
     def update_projectiles(self, dt):
         for proj in list(self.projectiles):
@@ -485,10 +531,18 @@ class Game:
         self.screen.blit(cone_surface, (0, 0))
 
     def draw_player(self):
-        body = pygame.Rect(self.player.pos.x - 13, self.player.pos.y - 2, 26, 20)
         color = PLAYER_GREEN if self.player.disguise is None else DIFFICULTY_COLORS[self.player.disguise]
-        pygame.draw.rect(self.screen, color, body)
-        pygame.draw.circle(self.screen, color, (int(self.player.pos.x), int(self.player.pos.y - 2)), 13)
+        if self.player.leaning:
+            direction = self.player.lean_normal.normalize() if self.player.lean_normal.length_squared() else pygame.Vector2(0, -1)
+            side = pygame.Vector2(-direction.y, direction.x)
+            nose = self.player.pos + direction * 12
+            back = self.player.pos - direction * 10
+            flank = back + side * 12
+            pygame.draw.polygon(self.screen, color, [nose, back, flank])
+        else:
+            body = pygame.Rect(self.player.pos.x - 13, self.player.pos.y - 2, 26, 20)
+            pygame.draw.rect(self.screen, color, body)
+            pygame.draw.circle(self.screen, color, (int(self.player.pos.x), int(self.player.pos.y - 2)), 13)
 
     def draw_enemy(self, enemy):
         if enemy.body_alive:
@@ -558,9 +612,9 @@ class Game:
             txt = self.font.render(line, True, (25, 25, 25))
             self.screen.blit(txt, (24, 20 + i * 24))
 
-        tip = self.font.render("WASD move | LMB shoot | RMB throw dagger | C steal colour", True, (40, 40, 40))
+        tip = self.font.render("WASD move | SHIFT lean | LMB shoot | RMB throw dagger | C steal colour", True, (40, 40, 40))
         self.screen.blit(tip, (24, HEIGHT - 34))
-        touch_tip = self.font.render("Touch: D-pad move | SHOOT | DAGGER | COLOR", True, (40, 40, 40))
+        touch_tip = self.font.render("Touch: D-pad move | LEAN | SHOOT | DAGGER | COLOR", True, (40, 40, 40))
         self.screen.blit(touch_tip, (24, HEIGHT - 58))
 
         for name, rect in self.mobile_controls.items():
@@ -571,7 +625,7 @@ class Game:
             self.screen.blit(overlay, rect.topleft)
             label = {
                 "up": "U", "down": "D", "left": "L", "right": "R",
-                "shoot": "SHOOT", "dagger": "DAG", "disguise": "CLR",
+                "shoot": "SHOOT", "dagger": "DAG", "disguise": "CLR", "lean": "LEAN",
             }[name]
             txt = self.font.render(label, True, (245, 245, 245))
             self.screen.blit(txt, (rect.centerx - txt.get_width() // 2, rect.centery - txt.get_height() // 2))
